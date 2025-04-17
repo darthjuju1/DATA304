@@ -1,0 +1,172 @@
+---
+title: "Advanced Visualizations"
+author: "erl"
+date: "2025-03-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sjPlot)
+library(igraph)
+library(networkD3)
+```
+```{r data}
+summary(mtcars)
+```
+# Facets and grids are your friends!
+```{r}
+# Using 2 spatial dimensions and no facets
+ggplot(mtcars) +
+  geom_point(aes(x = wt, 
+                 y = mpg, 
+                 color = factor(cyl), 
+                 shape = factor(gear),
+                 size = am==1
+             )) +
+  labs(title = "Multi-dimensional Scatter Plot",
+       x = "Weight", y = "Miles Per Gallon", size='Automatic',
+       color = "Cylinders", shape = "Gears")
+```
+```{r}
+# Using 3 spatial dimensions and one facet
+ggplot(mtcars, aes(x = wt, y = mpg, color = factor(cyl), shape = factor(gear))) +
+  geom_point(size = 3) +
+  facet_wrap(~ factor(am,levels = c(0,1), labels=c('Manual','Automatic'))) +
+  labs(title = "Multi-dimensional Scatter Plot",
+       x = "Weight", y = "Miles Per Gallon",
+       color = "Cylinders", shape = "Gears")
+```
+```{r}
+# Using 4 spatial dimensions and two facets
+ggplot(mtcars, aes(x = wt, y = mpg, color = factor(cyl))) +
+  geom_point(size = 3) +
+  facet_wrap(facets = ~ factor(am,levels = c(0,1), labels=c('Manual','Automatic')) + gear) +
+  labs(title = "Multi-dimensional Scatter Plot",
+       x = "Weight", y = "Miles Per Gallon",
+       color = "Cylinders")
+```
+```{r fig.width=8, fig.height=6, dpi=300}
+## Note that we set dimensions and pixel density ^^^^
+# Using 4 spatial dimensions and two facets
+ggplot(mtcars, aes(x = wt, y = mpg, color = factor(cyl))) +
+  geom_point(size = 3) +
+  facet_grid(rows = vars(factor(mtcars$am,levels = c(0,1), labels=c('Manual','Automatic'))), 
+             cols= vars(mtcars$gear)) +
+  labs(title = "Relationship between weight and fuel economy",
+       x = "Weight (tons)", y = "Miles Per Gallon",
+       color = "Cylinders") +
+  theme_bw()
+```
+
+```{r}
+# Make a beautiful, simple html version of your regression results
+model <- lm(mpg ~ wt + (am == 1) + gear, data = mtcars)
+tab_model(model,pred.labels = c('intercept','weight','automatic','gears'),dv.labels = 'Miles Per Gallon')
+```
+
+
+# Violin plots (densities) vs histograms (frequencies)
+```{r}
+ggplot(mtcars, aes(x = factor(cyl), y = mpg, fill = factor(cyl))) +
+  geom_violin(trim = FALSE, scale = "area") +
+  labs(title = "Violin Plot",
+       x = "Cylinders", y = "Miles Per Gallon",fill='Cylinders') +
+  theme_minimal()
+```
+```{r}
+ggplot(mtcars, aes(x = mpg)) +
+  geom_histogram(bins=10) +
+  facet_wrap(~ cyl,ncol = 1) + 
+  labs(title = "Histograms",
+       x = "Miles Per Gallon", y = "Frequency") +
+  theme_bw()
+```
+```{r}
+# Giving 3x eight cylinders
+eightcyl <- mtcars[mtcars$cyl==8,]
+mtcars_imballanced <- rbind(rbind(mtcars,eightcyl),eightcyl)
+
+ggplot(mtcars_imballanced, aes(x = factor(cyl), y = mpg, fill = factor(cyl))) +
+  geom_violin(trim = FALSE, scale = "area") +
+  labs(title = "Violin Plot",
+       x = "Cylinders", y = "Miles Per Gallon",fill='Cylinders') +
+  theme_minimal()
+```
+```{r}
+ggplot(mtcars_imballanced, aes(x = mpg)) +
+  geom_histogram(bins=10) +
+  facet_wrap(~ cyl,ncol = 1) + 
+  labs(title = "Histograms",
+       x = "Miles Per Gallon", y = "Frequency") +
+  theme_bw()
+```
+# Graph data
+```{r}
+g <- graph_from_literal(Gears -+ MPG, Cylinders -+ MPG, Weight -+ Cylinders,
+                        Weight -+ MPG)
+plot(g, layout = layout_in_circle(g),
+     vertex.label = V(g)$name, 
+     vertex.size = 80, main = "Causality in Engine Efficiency")
+```
+```{r fig.width=8,fig.height=10, dpi=300}
+# Step 1: Perform PCA on mtcars
+pca <- prcomp(mtcars, scale. = TRUE)
+
+# Step 2: Extract the first two principal components
+pca_scores <- pca$x[, 1:2]
+
+# Step 3: Compute the Euclidean distance matrix on these two dimensions
+dist_matrix <- as.matrix(dist(pca_scores))
+
+# Compute the 90th percentile of the non-zero distances
+threshold <- quantile(dist_matrix[dist_matrix != 0], 0.10)
+
+# Filter the distance matrix:
+# Set distances larger than the threshold to zero (i.e., no edge)
+filtered_matrix <- dist_matrix
+filtered_matrix[filtered_matrix > threshold] <- 0
+g_filtered <- graph.adjacency(filtered_matrix, mode = "undirected", weighted = TRUE, diag = FALSE)
+plot(g_filtered, vertex.label = rownames(mtcars),
+     main = "Weighted Graph of Cars (Top 90% Closeness)")
+```
+
+
+
+# Sanky diagrams
+```{r}
+# Define the flows in the job application process.
+# Note: Only candidates who reach the Follow Up Interviews can receive an Offer.
+links <- data.frame(
+  source = c("Applications", "Applications", "Applications",
+             "Tech Interviews", "Tech Interviews", "Tech Interviews", "Tech Interviews",
+             "Follow Up Interviews", "Follow Up Interviews", "Follow Up Interviews", "Follow Up Interviews"),
+  target = c("Tech Interviews", "Ghosted", "Rejected",
+             "Follow Up Interviews", "Ghosted", "Rejected", "Told to Apply Again",
+             "Offer", "Ghosted", "Rejected", "Told to Apply Again"),
+  value  = c(120, 30, 30,   # From Applications (total 200 applicants)
+             60, 20, 30, 10,     # From Tech Interviews (all 120 move out via various outcomes)
+             3, 10, 15, 5)      # From Follow Up Interviews (all 60 candidates)
+)
+
+# Create a node data frame listing each unique stage or outcome.
+nodes <- data.frame(
+  name = c("Applications", "Tech Interviews", "Follow Up Interviews",
+           "Ghosted", "Rejected", "Told to Apply Again", "Offer")
+)
+
+# networkD3 requires links to be specified using numeric IDs (0-indexed).
+links$IDsource <- match(links$source, nodes$name) - 1 
+links$IDtarget <- match(links$target, nodes$name) - 1
+
+# Build the Sankey diagram.
+sankey <- sankeyNetwork(Links = links, Nodes = nodes,
+                        Source = "IDsource", Target = "IDtarget",
+                        Value = "value", NodeID = "name",
+                        sinksRight = FALSE)
+
+# Display the Sankey diagram.
+sankey
+```
+
